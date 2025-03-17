@@ -1,5 +1,3 @@
-streamlit
-pandas
 langchain
 openai
 tiktoken
@@ -7,3 +5,14 @@ transformers
 torch
 sentence-transformers
 chromadb
+uuid
+langchain-openai
+langchain-core
+langchain-community
+langchain-text-splitters
+streamlit
+python-dotenv
+chromadb
+pymupdf
+pandas
+
