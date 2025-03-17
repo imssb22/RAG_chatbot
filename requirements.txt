@@ -1,0 +1,9 @@
+streamlit
+pandas
+langchain
+openai
+tiktoken
+transformers
+torch
+sentence-transformers
+chromadb
