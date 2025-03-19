@@ -1,4 +1,4 @@
-
+import uuid
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
@@ -22,7 +22,6 @@ st.set_page_config(page_title="File QA Chatbot", page_icon="🤖")
 st.title("Welcome to File QA Refrigeration and Cryogenics Chatbot 🤖")
 
 @st.cache_resource(ttl="1h")
-
 def configure_retriever(uploaded_files):
   # Read documents
   docs = []
@@ -110,8 +109,14 @@ qa_rag_chain = (
   chatgpt # above prompt is sent to the LLM for response
 )
 
-# Store conversation history in Streamlit session state
-streamlit_msg_history = StreamlitChatMessageHistory(key="langchain_messages")
+# Generate a session ID for each user
+if "session_id" not in st.session_state:
+  st.session_state["session_id"] = str(uuid.uuid4())
+
+session_id = st.session_state["session_id"]
+
+# Store conversation history in Streamlit session state with session ID
+streamlit_msg_history = StreamlitChatMessageHistory(key=f"langchain_messages_{session_id}")
 
 # Shows the first message when app starts
 if len(streamlit_msg_history.messages) == 0:
@@ -121,8 +126,6 @@ if len(streamlit_msg_history.messages) == 0:
 for msg in streamlit_msg_history.messages:
   st.chat_message(msg.type).write(msg.content)
 
-# Callback handler which does some post-processing on the LLM response
-# Used to post the top 3 document sources used by the LLM in RAG response
 class PostMessageHandler(BaseCallbackHandler):
   def __init__(self, msg: st.write):
     BaseCallbackHandler.__init__(self)
@@ -154,6 +157,7 @@ class PostMessageHandler(BaseCallbackHandler):
 # If user inputs a new prompt, display it and show the response
 if user_prompt := st.chat_input():
   st.chat_message("human").write(user_prompt)
+  streamlit_msg_history.add_user_message( user_prompt)  # Add user prompt to message history
   # This is where response from the LLM is shown
   with st.chat_message("ai"):
     # Initializing an empty data stream
@@ -164,3 +168,55 @@ if user_prompt := st.chat_input():
     config = {"callbacks": [stream_handler, pm_handler]}
     # Get LLM response
     response = qa_rag_chain.invoke({"question": user_prompt}, config=config)
+    streamlit_msg_history.add_ai_message( response.content)  # Add LLM response to message history
+
+def generate_synthetic_qa(doc_chunks, num_pairs=5):
+    """Generate synthetic QA pairs using ChatGPT from given document chunks."""
+    qa_generator_prompt = ChatPromptTemplate.from_template("""
+        Generate {num_pairs} question-answer pairs based on the provided document content.
+        Keep the questions concise and relevant.
+
+        Document:
+        {document}
+
+        Output format:
+        Q1: <question>
+        A1: <answer>
+        Q2: <question>
+        A2: <answer>
+        ...
+    """)
+
+    qa_generator_chain = qa_generator_prompt | chatgpt | StrOutputParser()
+
+    # Use the first document chunk as plain text
+    sample_document = doc_chunks[0] if doc_chunks else "No document found."
+
+    return qa_generator_chain.invoke({"document": sample_document, "num_pairs": num_pairs})
+
+
+def evaluate_chatbot_accuracy():
+    """Evaluates chatbot accuracy using synthetic QA pairs."""
+    global retriever
+
+    # Get document chunks from retriever
+    doc_chunks = retriever.vectorstore.get()["documents"]
+
+    if not doc_chunks or len(doc_chunks) == 0:
+        st.error("No documents found in retriever.")
+        return
+
+    # Generate synthetic QA pairs
+    synthetic_qa_pairs = generate_synthetic_qa(doc_chunks)
+
+    st.write("### Synthetic QA Pairs Generated:")
+    st.write(synthetic_qa_pairs)
+
+# Streamlit UI button to trigger evaluation
+if st.button("Evaluate Chatbot Accuracy"):
+    evaluate_chatbot_accuracy()
+
+
+if __name__ == "__main__":
+    import streamlit as st
+    st.title("My Azure Streamlit RAG Chatbot")
