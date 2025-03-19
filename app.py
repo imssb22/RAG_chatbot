@@ -15,6 +15,7 @@ import chromadb
 from pathlib import Path
 load_dotenv()
 import pandas as pd
+from langchain_core.output_parsers import StrOutputParser
 
 # openai_api_key = os.environ['OPENAI_API_KEY']
 
