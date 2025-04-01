@@ -2,7 +2,7 @@
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 # More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
 
-name: Build and deploy Python app to Azure Web App - RAG-Chatbot
+name: Build and deploy Python app to Azure Web App - RAG-chatbot
 
 on:
   push:
@@ -68,14 +68,14 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_0EC9B48AB54C4301B7675E16136FC73C }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_531F661BE2904008866CD694EA79F78B }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_B27329FD0FB74BB3B6D3D10455F3DF0A }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_1CB72CF5DD8641C6B876F3E5F5E413DA }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_1903ECFE8ADF4981984898BCE7B10156 }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_C4BC35C52F764C7A8ABB17583FD16AA9 }}
 
       - name: 'Deploy to Azure Web App'
         uses: azure/webapps-deploy@v3
         id: deploy-to-webapp
         with:
-          app-name: 'RAG-Chatbot'
+          app-name: 'RAG-chatbot'
           slot-name: 'Production'
           
