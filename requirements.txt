@@ -15,4 +15,8 @@ python-dotenv
 chromadb
 pymupdf
 pandas
+llama_index
+llama-index-packs-rag_evaluator
+spacy
+nest_asyncio
 

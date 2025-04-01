@@ -1,2 +1,3 @@
 .env
 venv
+chatgpt_api_credentials.json

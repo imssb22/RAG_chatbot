@@ -16,11 +16,34 @@ from pathlib import Path
 load_dotenv()
 import pandas as pd
 from langchain_core.output_parsers import StrOutputParser
+import os
+import certifi
+import ssl
+from llama_index.llms.openai import OpenAI
+import nest_asyncio
+nest_asyncio.apply()
+from llama_index.readers.file import PDFReader
+from llama_index.core.evaluation import (
+    FaithfulnessEvaluator,
+    RelevancyEvaluator,
+    CorrectnessEvaluator)
 
+from llama_index.llms.openai import OpenAI
+from llama_index.core.evaluation import DatasetGenerator
+from llama_index.core import (
+    VectorStoreIndex,
+)
+from llama_index.embeddings.openai import OpenAIEmbedding
+from llama_index.core.evaluation import BatchEvalRunner
+# Set SSL certificate path manually
+os.environ["SSL_CERT_FILE"] = certifi.where()
+ssl._create_default_https_context = ssl.create_default_context
+
+print("Using SSL Certificate:", os.environ["SSL_CERT_FILE"])
 # openai_api_key = os.environ['OPENAI_API_KEY']
 
 st.set_page_config(page_title="File QA Chatbot", page_icon="🤖")
-st.title("Welcome to File QA Refrigeration and Cryogenics Chatbot 🤖")
+st.title("Welcome to File QA RAG Chatbot 🤖")
 
 @st.cache_resource(ttl="1h")
 def configure_retriever(uploaded_files):
@@ -47,6 +70,7 @@ def configure_retriever(uploaded_files):
   vectordb = Chroma.from_documents(doc_chunks, embeddings_model, persist_directory=persist_directory)
 
   # Define retriever object
+
   retriever = vectordb.as_retriever()
   return retriever
 
@@ -110,13 +134,12 @@ qa_rag_chain = (
   chatgpt # above prompt is sent to the LLM for response
 )
 
-# Generate a session ID for each user
 if "session_id" not in st.session_state:
   st.session_state["session_id"] = str(uuid.uuid4())
 
 session_id = st.session_state["session_id"]
 
-# Store conversation history in Streamlit session state with session ID
+
 streamlit_msg_history = StreamlitChatMessageHistory(key=f"langchain_messages_{session_id}")
 
 # Shows the first message when app starts
@@ -135,7 +158,7 @@ class PostMessageHandler(BaseCallbackHandler):
 
   def on_retriever_end(self, documents, *, run_id, parent_run_id, **kwargs):
     source_ids = []
-    for d in documents: # retrieved documents from retriever based on user query
+    for d in documents: 
       metadata = {
         "source": d.metadata["source"],
         "page": d.metadata["page"],
@@ -155,15 +178,15 @@ class PostMessageHandler(BaseCallbackHandler):
         st.markdown(f"[{source['source']} - Page {source['page']}]({source['source']})") # Top 3 sources
 
 
-# If user inputs a new prompt, display it and show the response
+
 if user_prompt := st.chat_input():
   st.chat_message("human").write(user_prompt)
   streamlit_msg_history.add_user_message( user_prompt)  # Add user prompt to message history
-  # This is where response from the LLM is shown
+
   with st.chat_message("ai"):
     # Initializing an empty data stream
     stream_handler = StreamHandler(st.empty())
-    # UI element to write RAG sources after LLM response
+
     sources_container = st.write("")
     pm_handler = PostMessageHandler(sources_container)
     config = {"callbacks": [stream_handler, pm_handler]}
@@ -190,10 +213,20 @@ def generate_synthetic_qa(doc_chunks, num_pairs=5):
 
     qa_generator_chain = qa_generator_prompt | chatgpt | StrOutputParser()
 
-    # Use the first document chunk as plain text
+
     sample_document = doc_chunks[0] if doc_chunks else "No document found."
 
     return qa_generator_chain.invoke({"document": sample_document, "num_pairs": num_pairs})
+
+def get_eval_results(key, eval_results):
+    results = eval_results[key]
+    correct = 0
+    for result in results:
+        if result.passing:
+            correct += 1
+    score = correct / len(results)
+    print(f"{key} Score: {score}")
+    return score
 
 
 def evaluate_chatbot_accuracy():
@@ -213,8 +246,69 @@ def evaluate_chatbot_accuracy():
     st.write("### Synthetic QA Pairs Generated:")
     st.write(synthetic_qa_pairs)
 
+    gpt35 = OpenAI(model="gpt-3.5-turbo", temperature=0.1)
+
+    loader = PDFReader()
+    documents = loader.load_data(file=Path('test_pdf.pdf'))
+
+    #Generate Questions
+    data_generator = DatasetGenerator.from_documents(documents)
+    eval_dataset = data_generator.generate_dataset_from_nodes(num = 10)
+
+    eval_questions = [example[0] for example in eval_dataset.qr_pairs]
+    eval_answers = [example[1] for example in eval_dataset.qr_pairs]
+
+    eval_query = eval_questions[0]
+    embed_model = OpenAIEmbedding(model='text-embedding-3-small', api_key=os.environ['OPENAI_API_KEY'])
+
+    vector_store_index = VectorStoreIndex.from_documents(documents, embed_model=embed_model, llm=gpt35, show_progress=False)
+    query_engine = vector_store_index.as_query_engine(similarity_top_k=3)
+
+    retriever = vector_store_index.as_retriever(similarity_top_k=3)
+    
+
+    faithfulness_evaluator = FaithfulnessEvaluator(llm=gpt35)
+    correctness_evaluator = CorrectnessEvaluator(llm=gpt35)
+    relevancy_evaluator = RelevancyEvaluator(llm=gpt35)
+    
+
+
+    runner = BatchEvalRunner(
+        {
+        "faithfulness": faithfulness_evaluator,
+        "relevancy": relevancy_evaluator,
+        "correctness": correctness_evaluator
+        },
+        workers=8,
+    )
+    import asyncio
+    eval_results = asyncio.run(runner.aevaluate_queries(
+        query_engine, queries=eval_questions, reference = eval_answers
+    ))
+    
+
+    faithfulness_res = get_eval_results("faithfulness", eval_results)
+    correctness_res = get_eval_results("correctness", eval_results)
+    relevancy_res = get_eval_results("relevancy", eval_results)
+
+    print("faithfulness_res", faithfulness_res)
+    print("correctness_res", correctness_res)
+    print("relevancy_res", relevancy_res)
+
+    # st.title("Evaluation Results")
+
+    # st.metric(label="Faithfulness", value=faithfulness_res)
+    # st.metric(label="Correctness", value=correctness_res)
+    # st.metric(label="Relevancy", value=relevancy_res)
+
+    # Optional: Display results in a table format
+    st.write("### Evaluation Scores")
+    st.table({
+        "Metric": ["Faithfulness", "Correctness", "Relevancy"],
+        "Score": [faithfulness_res, correctness_res, relevancy_res]
+    })
 # Streamlit UI button to trigger evaluation
-if st.button("Evaluate Chatbot Accuracy"):
+if st.button("Evaluate"):
     evaluate_chatbot_accuracy()
 
 
